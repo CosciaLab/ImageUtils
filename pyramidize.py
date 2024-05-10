@@ -1,5 +1,3 @@
-
-
 #system
 from loguru import logger
 import argparse
