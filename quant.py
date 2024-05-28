@@ -18,6 +18,7 @@ import time
 
 # assumptions:
 # images and masks should have the same name and shape
+# not true for mesmer segmented images through MCMICRO
 
 def get_args():
 
