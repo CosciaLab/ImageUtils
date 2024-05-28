@@ -17,7 +17,6 @@ except ImportError:
     tqdm = lambda x: x
 
 #TODO: Parallelize the processing of the masks
-#TODO: Add a progress bar to show the progress of the processing: tqdm, alive progress
 
 def get_args():
     """ Get arguments from command line """
