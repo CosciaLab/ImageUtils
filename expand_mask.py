@@ -10,11 +10,14 @@ import skimage.segmentation as segmentation
 import skimage.io as io
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
+try:
+    from tqdm import tqdm   
+except ImportError:
+    logger.warning("tqdm not installed, install it for a progress bar")
+    tqdm = lambda x: x
 
 #TODO: Parallelize the processing of the masks
 #TODO: Add a progress bar to show the progress of the processing: tqdm, alive progress
-#TODO: some kind of renaming of the output files
-
 
 def get_args():
     """ Get arguments from command line """
@@ -44,7 +47,6 @@ def check_input_outputs(args):
     elif os.path.isdir(args.input):
         if os.path.isdir(args.output):
             logger.info(f"Both input and output are folders")
-            os.makedirs(os.path.join(args.output), exist_ok=True)
             if not os.path.exists(args.input) or not os.path.exists(args.output):
                 raise ValueError('Input and output folders must exist')
         
@@ -76,7 +78,7 @@ def expand_mask(input_path:str, output_path:str, how_many_pixels:int, type_of_in
     elif type_of_input == "folder_of_tifs":
         list_of_files = [f for f in os.listdir(input_path) if f.endswith('.tif')]
         logger.debug(f"Found {len(list_of_files)} files in the folder")
-        for file in list_of_files:
+        for file in tqdm(list_of_files):
             logger.info(f"    Working on sample {file}")
             label = io.imread(os.path.join(input_path, file))
             expanded_labels = segmentation.expand_labels(label, how_many_pixels)
@@ -85,21 +87,22 @@ def expand_mask(input_path:str, output_path:str, how_many_pixels:int, type_of_in
     elif type_of_input == "folder_of_folders":
         list_of_folders = [f for f in os.listdir(input_path) if os.path.isdir(os.path.join(input_path, f))]
         logger.info(f"Found {len(list_of_folders)} subfolders in the folder")
-        for folder in list_of_folders:
+        for folder in tqdm(list_of_folders):
             logger.info(f"    Working on subfolder {folder}")
             list_of_files = [f for f in os.listdir(os.path.join(input_path, folder)) if f.endswith('.tif')]
             assert len(list_of_files) > 0, f"No .tif files found in the subfolder {folder}"
             assert len(list_of_files) == 1, f"More than one .tif file found in the subfolder {folder}"
             label = io.imread(os.path.join(input_path, folder, list_of_files[0]))
             expanded_labels = segmentation.expand_labels(label, how_many_pixels)
-            output_filename = folder.split('-')[1] + f'_mesmer_{how_many_pixels}px_expanded.tif'
+            output_filename = folder.split('-')[1].zfill(2) + f'_mesmer_exp{how_many_pixels}px.tif'
             io.imsave(fname=os.path.join(output_path, output_filename), arr=expanded_labels)
 
 def main():
     args = get_args()
     logger.remove()
     logger.add(sys.stdout, format="<green>{time:HH:mm:ss.SS}</green> | <level>{level}</level> | {message}", level=args.loglevel.upper())
-    expand_mask(args.input, args.output, args.pixels, type_of_input=check_input_outputs(args))
+    type_of_input = check_input_outputs(args)
+    expand_mask(args.input, args.output, args.pixels, type_of_input=type_of_input)
 
 if __name__ == "__main__":
     start_time = time.time()
