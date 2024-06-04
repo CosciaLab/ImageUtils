@@ -23,10 +23,10 @@ def get_args():
     description = """Expand labeled masks by a certain number of pixels."""
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
     inputs = parser.add_argument_group(title="Required Input", description="Path to required input file")
-    inputs.add_argument("-r", "--input", dest="input", action="store", required=True, help="File path to input mask or folders with many masks")
-    inputs.add_argument("-o", "--output", dest="output", action="store", required=True, help="Path to output mask, or folder where to save the output masks")
-    inputs.add_argument("-p", "--pixels", dest="pixels", action="store", type=int, required=False, help="Image pixel size")
-    inputs.add_argument("-l", "--log-level", dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
+    inputs.add_argument("-r", "--input",    dest="input", action="store", required=True, help="File path to input mask or folders with many masks")
+    inputs.add_argument("-o", "--output",   dest="output", action="store", required=True, help="Path to output mask, or folder where to save the output masks")
+    inputs.add_argument("-p", "--pixels",   dest="pixels", action="store", type=int, required=False, help="Image pixel size")
+    inputs.add_argument("-l", "--log-level",dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
     arg = parser.parse_args()
     # Standardize paths
     arg.input = abspath(arg.input)
@@ -88,7 +88,7 @@ def expand_mask(input_path:str, output_path:str, how_many_pixels:int, type_of_in
         list_of_folders = [f for f in os.listdir(input_path) if os.path.isdir(os.path.join(input_path, f))]
         logger.info(f"Found {len(list_of_folders)} subfolders in the folder")
         for folder in tqdm(list_of_folders):
-            logger.info(f"    Working on subfolder {folder}")
+            logger.info(f"    Working on sample {folder.split('-')[1]}")
             list_of_files = [f for f in os.listdir(os.path.join(input_path, folder)) if f.endswith('.tif')]
             assert len(list_of_files) > 0, f"No .tif files found in the subfolder {folder}"
             assert len(list_of_files) == 1, f"More than one .tif file found in the subfolder {folder}"
@@ -108,6 +108,7 @@ if __name__ == "__main__":
     start_time = time.time()
     main()
     logger.info(f"Execution time: {time.time() - start_time:.1f} seconds ")
+
 
 """
 Example usages:
