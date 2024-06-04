@@ -16,21 +16,29 @@ import time
 #TODO add for specific quantile
 #TODO add for specific equation, expected 2D array of values
 
-
 # redundancies
-# TODO markers.csv columns order and names
 # TODO images and masks should have to be exactly the same
-
 # TODO either id system or samples sheet... 
-
 
 # assumptions:
 # images and masks should have the same name and shape
 # not true for mesmer segmented images through MCMICRO
 
+
+df = pd.DataFrame({
+    'col1': [1, 2, 3],
+    'col2': [4, 5, 6],
+    'col3': [7, 8, 9]
+})
+
+expected_columns = {'col1', 'col2', 'col3'}
+
+assert set(df.columns) == expected_columns, f"DataFrame does not have the expected columns: {expected_columns}"
+
+
 def get_args():
 
-    description="""Easy-to-use, image quantification """
+    description="""Easy-to-use, pixel quantification """
 
     parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
 
@@ -55,15 +63,18 @@ def check_input_outputs(args):
 
     #check csv
     if args.markers.endswith('.csv'):
-        df = pd.read_csv(args.markers, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#')
-        assert df.shape[1] >= 3, "Markers file must have 3 columns"
-        assert df.columns[0] == 'channel_number', "First column must be channel_number"
-        assert df.columns[1] == 'cycle_number', "Second column must be cycle_number"
-        assert df.columns[2] == 'marker_name', "Third column must be marker_name"
-        assert df.dtypes[0] == 'int16', "First column must be int16"
-        assert df.dtypes[1] == 'int16', "Second column must be int16"
-        assert df.dtypes[2] == 'str' or "object", f"Third column must be str, it is {df.dtypes[2]}"
-        assert df['marker_name'].nunique() == df.shape[0], "Marker names must be unique"
+        df = pd.read_csv(args.markers)
+        logger.debug(f"Markers shape {df.shape}")
+        logger.debug(f"Markers columns {df.columns}")
+        logger.debug(f"Markers' markers {df['marker_name'].tolist()}")
+        expected_columns = {'channel_number', 'cycle_number', 'marker_name'}
+        assert df.shape[1] >= 3, "Markers file must at least 3 columns"
+        assert set(df.columns) == expected_columns, f"DataFrame does not have the expected columns: {expected_columns}"
+        assert df['channel_number'].nunique() == df.shape[0], "Channel numbers must be unique"
+        assert df['marker_name'].nunique() == df.shape[0], "Cycle numbers must be unique"
+        assert df['channel_number'].dtype == 'int16', "Channel number must be int16"
+        assert df['marker_name'].dtype == 'str' or "object", f"Marker name must be str, it is {df['marker_name'].dtype}"
+        assert df['cycle_number'].dtype == 'int16', "Cycle number must be int16"
         logger.info(f"Markers file checked")
 
     if os.path.isfile(args.image):
@@ -77,7 +88,6 @@ def check_input_outputs(args):
     elif os.path.isdir(args.image):
         assert os.path.isdir(args.label), "Both image and label must be folders"
         assert os.path.isfile(args.markers), "Markers must be a csv file"
-        #create output folder
         try:
             os.makedirs(args.output, exist_ok=True)
         except OSError:
@@ -88,17 +98,11 @@ def check_input_outputs(args):
     else:
         raise ValueError('Input image and mask must match for being files or folders')
     
-def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str, meanmaxmin:bool = False):
+def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str):
     """ Quantify a single image and mask """
-    # load markers
-    markers = pd.read_csv(markers_path, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#')
-    logger.debug(f"Markers shape {markers.shape}")
-    logger.debug(f"Markers columns {markers.columns}")
-    logger.debug(f"Markers' markers {markers['marker_name'].tolist()}")
-    # load images
+    markers = pd.read_csv(markers_path)
     multichannel_image = io.imread(image_path)
 
-    # cant assume (c,x,y), transpose if necessary
     if len(multichannel_image.shape) != 3:
         raise ValueError(f"Multichannel image must have 3 dimensions, this shape {multichannel_image.shape} found")
     
@@ -111,8 +115,7 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     # load labels
     labeled_mask = io.imread(labels_path)
     logger.debug(f"Labeled mask shape {labeled_mask.shape}")
-    #check max and min value of mask
-    logger.debug(f"MASK: Max: {labeled_mask.max()} Min: {labeled_mask.min()}, 0_count: {np.count_nonzero(labeled_mask == 0)} 1_count: {np.count_nonzero(labeled_mask == 1)}")
+    logger.debug(f"MASK: Max: {labeled_mask.max()}, Min: {labeled_mask.min()}, 0_count: {np.count_nonzero(labeled_mask == 0)}, 1_count: {np.count_nonzero(labeled_mask == 1)}")
     
     #check shapes of images and masks
     if multichannel_image.shape[2] != markers.shape[0]:
@@ -123,7 +126,7 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
         raise ValueError("Labeled mask is binary, not labeled")
     
     # calculate morphological properties
-    props = ['intensity_mean','area', 'axis_major_length', 'axis_minor_length','centroid','eccentricity','orientation', 'perimeter', 'solidity']
+    props = ['intensity_mean','centroid', 'area', 'axis_major_length', 'axis_minor_length','eccentricity','orientation', 'perimeter', 'solidity']
     properties = regionprops_table(label_image=labeled_mask, intensity_image=multichannel_image, properties=props)
     df = pd.DataFrame(properties)
     logger.info(f'Number of cells quantified : {df.shape[0]}')
@@ -157,27 +160,22 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     df.to_csv(output_path, index=False)
     logger.info(f"Quantification results saved to {output_path}")
 
-def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str, meanmaxmin:bool = False):
+def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str):
     """ Quantify a folder of images and masks """
 
     list_of_files = [f for f in os.listdir(image_path) if f.endswith('.tif')]
     logger.info(f"Found {len(list_of_files)} files in the folder")
-    
-    #assumes that the labels and images have the same name, most likely issues
-    # how to handle if they dont have the same name, should have same beginning before dot
 
     for file in list_of_files:
         logger.info(f"    Working on sample {file}")
-        # Remove the extension from the file
-        output_without_extension = os.path.splitext(file)[0]
-        csv_file_path = os.path.join(output_path, output_without_extension + '.csv')
+        csv_file_path = os.path.join(output_path, os.path.splitext(file)[0] + '.csv')
 
         quantify_single_file(
             image_path=os.path.join(image_path, file), 
             labels_path=os.path.join(labels_path, file.split('.')[0] + '.tif'), 
             markers_path=markers_path, 
             output_path=csv_file_path,
-            meanmaxmin = meanmaxmin)
+        )
         
 def main():
     args = get_args()
@@ -186,10 +184,10 @@ def main():
     processing = check_input_outputs(args)
     if processing == "single_file":
         logger.info("Processing a single mask")
-        quantify_single_file(args.image, args.label, args.markers, args.output, meanmaxmin=False)
+        quantify_single_file(args.image, args.label, args.markers, args.output)
     elif processing == "folder":
         logger.info("Processing a folder of masks")
-        quantify_folder(args.image, args.label, args.markers, args.output, meanmaxmin=False)
+        quantify_folder(args.image, args.label, args.markers, args.output)
 
 if __name__ == "__main__":
     st = time.time()
