@@ -26,7 +26,7 @@ def get_args():
     inputs.add_argument("-r", "--input", dest="input", action="store", required=True, help="File path to input mask or folders with many masks")
     inputs.add_argument("-o", "--output", dest="output", action="store", required=True, help="Path to output mask, or folder where to save the output masks")
     inputs.add_argument("-p", "--pixels", dest="pixels", action="store", type=int, required=False, help="Image pixel size")
-    inputs.add_argument("-l", "--log-level", dest="loglevel", default='INFO', choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help='Set the log level (default: INFO)')
+    inputs.add_argument("-l", "--log-level", dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
     arg = parser.parse_args()
     # Standardize paths
     arg.input = abspath(arg.input)
@@ -44,8 +44,9 @@ def check_input_outputs(args):
         return "single_file"
     
     elif os.path.isdir(args.input):
+        logger.debug(f"Input is a folder")
         if os.path.isdir(args.output):
-            logger.info(f"Both input and output are folders")
+            logger.debug(f"Output is a folder")
             if not os.path.exists(args.input) or not os.path.exists(args.output):
                 raise ValueError('Input and output folders must exist')
         
@@ -93,7 +94,7 @@ def expand_mask(input_path:str, output_path:str, how_many_pixels:int, type_of_in
             assert len(list_of_files) == 1, f"More than one .tif file found in the subfolder {folder}"
             label = io.imread(os.path.join(input_path, folder, list_of_files[0]))
             expanded_labels = segmentation.expand_labels(label, how_many_pixels)
-            output_filename = folder.split('-')[1].zfill(2) + f'_mesmer_exp{how_many_pixels}px.tif'
+            output_filename = folder.split('-')[1] + '.tif'
             io.imsave(fname=os.path.join(output_path, output_filename), arr=expanded_labels)
 
 def main():

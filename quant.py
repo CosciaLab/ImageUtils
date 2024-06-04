@@ -16,6 +16,14 @@ import time
 #TODO add for specific quantile
 #TODO add for specific equation, expected 2D array of values
 
+
+# redundancies
+# TODO markers.csv columns order and names
+# TODO images and masks should have to be exactly the same
+
+# TODO either id system or samples sheet... 
+
+
 # assumptions:
 # images and masks should have the same name and shape
 # not true for mesmer segmented images through MCMICRO
@@ -48,7 +56,7 @@ def check_input_outputs(args):
     #check csv
     if args.markers.endswith('.csv'):
         df = pd.read_csv(args.markers, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#')
-        assert df.shape[1] == 3, "Markers file must have 3 columns"
+        assert df.shape[1] >= 3, "Markers file must have 3 columns"
         assert df.columns[0] == 'channel_number', "First column must be channel_number"
         assert df.columns[1] == 'cycle_number', "Second column must be cycle_number"
         assert df.columns[2] == 'marker_name', "Third column must be marker_name"
@@ -89,9 +97,11 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     logger.debug(f"Markers' markers {markers['marker_name'].tolist()}")
     # load images
     multichannel_image = io.imread(image_path)
+
     # cant assume (c,x,y), transpose if necessary
     if len(multichannel_image.shape) != 3:
         raise ValueError(f"Multichannel image must have 3 dimensions, this shape {multichannel_image.shape} found")
+    
     # if shape is c,x,y, transpose to x,y,c, expected from skimage
     logger.debug(f"Multichannel image shape {multichannel_image.shape}")
     if multichannel_image.shape[0] < multichannel_image.shape[2]:
@@ -154,6 +164,8 @@ def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_pa
     logger.info(f"Found {len(list_of_files)} files in the folder")
     
     #assumes that the labels and images have the same name, most likely issues
+    # how to handle if they dont have the same name, should have same beginning before dot
+
     for file in list_of_files:
         logger.info(f"    Working on sample {file}")
         # Remove the extension from the file
@@ -162,7 +174,7 @@ def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_pa
 
         quantify_single_file(
             image_path=os.path.join(image_path, file), 
-            labels_path=os.path.join(labels_path, file), 
+            labels_path=os.path.join(labels_path, file.split('.')[0] + '.tif'), 
             markers_path=markers_path, 
             output_path=csv_file_path,
             meanmaxmin = meanmaxmin)
