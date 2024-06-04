@@ -10,30 +10,18 @@ import os
 import argparse
 from os.path import abspath
 import time
+import ast
+
+try:
+    from tqdm import tqdm   
+except ImportError:
+    logger.warning("tqdm not installed, install it for a progress bar")
+    tqdm = lambda x: x
 
 #TODO add meanmaxmin option in argparse
 #TODO add for median
 #TODO add for specific quantile
 #TODO add for specific equation, expected 2D array of values
-
-# redundancies
-# TODO images and masks should have to be exactly the same
-# TODO either id system or samples sheet... 
-
-# assumptions:
-# images and masks should have the same name and shape
-# not true for mesmer segmented images through MCMICRO
-
-
-df = pd.DataFrame({
-    'col1': [1, 2, 3],
-    'col2': [4, 5, 6],
-    'col3': [7, 8, 9]
-})
-
-expected_columns = {'col1', 'col2', 'col3'}
-
-assert set(df.columns) == expected_columns, f"DataFrame does not have the expected columns: {expected_columns}"
 
 
 def get_args():
@@ -47,14 +35,17 @@ def get_args():
     inputs.add_argument("-l", "--label",    dest="label",       action="store", required=True, help="File path to input mask or folder with masks")
     inputs.add_argument("-m", "--markers",  dest="markers",     action="store", required=True, help="marker file path")
     inputs.add_argument("-o", "--output",   dest="output",      action="store", required=True, help="Path to output file or folder")
-    inputs.add_argument("-ll", "--log-level", dest="loglevel", default='INFO', choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help='Set the log level (default: INFO)')
+    inputs.add_argument("-ll", "--log-level",   dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
+    inputs.add_argument("-w", "--math",     dest="math",        action="store", required=False,  type=str, default='[mean]', help='Set the math operation (default: mean)')
+    inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, default=None, help='Set the quantile (default: 0.5)')
+    
     arg = parser.parse_args()
-
+    arg.math        = ast.literal_eval(arg.math)
+    arg.quantile    = ast.literal_eval(arg.quantile)
     arg.image   = abspath(arg.image)
     arg.label   = abspath(arg.label)
     arg.markers = abspath(arg.markers)
     arg.output  = abspath(arg.output)
-
     return arg
 
 
@@ -69,14 +60,24 @@ def check_input_outputs(args):
         logger.debug(f"Markers' markers {df['marker_name'].tolist()}")
         expected_columns = {'channel_number', 'cycle_number', 'marker_name'}
         assert df.shape[1] >= 3, "Markers file must at least 3 columns"
-        assert set(df.columns) == expected_columns, f"DataFrame does not have the expected columns: {expected_columns}"
+        assert expected_columns.issubset(df.columns), f"DataFrame does not have the expected columns: {expected_columns}"
         assert df['channel_number'].nunique() == df.shape[0], "Channel numbers must be unique"
         assert df['marker_name'].nunique() == df.shape[0], "Cycle numbers must be unique"
-        assert df['channel_number'].dtype == 'int16', "Channel number must be int16"
         assert df['marker_name'].dtype == 'str' or "object", f"Marker name must be str, it is {df['marker_name'].dtype}"
-        assert df['cycle_number'].dtype == 'int16', "Cycle number must be int16"
         logger.info(f"Markers file checked")
 
+    #check math
+    assert isinstance(args.math, list), f"Math must be a list, you provided {args.math}"
+    assert len(args.math) > 0, "Math list must have at least one element"
+    expected_math = {'mean', 'max', 'min', 'median', 'mode', 'std'}
+    assert all(item in expected_math for item in args.math), f"Math operations must be in {expected_math}"
+
+    #check quantile
+    assert isinstance(args.quantile, list), f"Quantile must be a list, you provided {args.quantile}"
+    if len(args.quantile) > 0:
+        assert all(isinstance(item, float) for item in args.quantile), "All elements of quantile must be floats"
+
+    #check image and mask
     if os.path.isfile(args.image):
         assert os.path.isfile(args.label), "Both image and label must be files"
         assert args.image.endswith('.tif') and args.label.endswith('.tif'), "Both image and label must be tif files"
@@ -97,8 +98,16 @@ def check_input_outputs(args):
     
     else:
         raise ValueError('Input image and mask must match for being files or folders')
-    
-def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str):
+
+def create_props(math:list):
+    # calculate morphological properties
+    props = ['centroid', 'area', 'axis_major_length', 'axis_minor_length','eccentricity','orientation', 'perimeter', 'solidity']
+    for i in math:
+        props.insert(0, f'intensity_{i}')
+    logger.info(f"Calculating these {props} for each cell")
+    return props
+
+def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list):
     """ Quantify a single image and mask """
     markers = pd.read_csv(markers_path)
     multichannel_image = io.imread(image_path)
@@ -124,12 +133,9 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
         raise ValueError("Image and labels must have the same shape")
     if np.unique(labeled_mask).shape[0] <= 2:
         raise ValueError("Labeled mask is binary, not labeled")
-    
-    # calculate morphological properties
-    props = ['intensity_mean','centroid', 'area', 'axis_major_length', 'axis_minor_length','eccentricity','orientation', 'perimeter', 'solidity']
+
     properties = regionprops_table(label_image=labeled_mask, intensity_image=multichannel_image, properties=props)
     df = pd.DataFrame(properties)
-    logger.info(f'Number of cells quantified : {df.shape[0]}')
 
     #create cell id column from index
     df.insert(0, "CellID", df.index)
@@ -145,7 +151,6 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
         'perimeter': 'Extent', 
         'orientation': 'Orientation'
     }
-    
     df.rename(columns=rename_map, inplace=True)
 
     #list all columns that start as intensity_mean-*, the default from skimage.measure.regionprops_table
@@ -158,15 +163,13 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     #rename columns
     df.rename(columns=channel_map, inplace=True)
     df.to_csv(output_path, index=False)
-    logger.info(f"Quantification results saved to {output_path}")
 
-def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str):
+def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list):
     """ Quantify a folder of images and masks """
-
     list_of_files = [f for f in os.listdir(image_path) if f.endswith('.tif')]
     logger.info(f"Found {len(list_of_files)} files in the folder")
 
-    for file in list_of_files:
+    for file in tqdm(list_of_files):
         logger.info(f"    Working on sample {file}")
         csv_file_path = os.path.join(output_path, os.path.splitext(file)[0] + '.csv')
 
@@ -175,6 +178,7 @@ def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_pa
             labels_path=os.path.join(labels_path, file.split('.')[0] + '.tif'), 
             markers_path=markers_path, 
             output_path=csv_file_path,
+            props=props
         )
         
 def main():
@@ -182,17 +186,21 @@ def main():
     logger.remove()
     logger.add(sys.stdout, format="<green>{time:HH:mm:ss.SS}</green> | <level>{level}</level> | {message}", level=args.loglevel.upper())
     processing = check_input_outputs(args)
+    props = create_props(args.math)
+
     if processing == "single_file":
         logger.info("Processing a single mask")
-        quantify_single_file(args.image, args.label, args.markers, args.output)
+        quantify_single_file(args.image, args.label, args.markers, args.output, props)
     elif processing == "folder":
         logger.info("Processing a folder of masks")
-        quantify_folder(args.image, args.label, args.markers, args.output)
+        quantify_folder(args.image, args.label, args.markers, args.output, props)
+    
+    logger.success(f"Done, results saved in {args.output}")
 
 if __name__ == "__main__":
     st = time.time()
     main()
-    logger.info(f"Execution time: {time.time() - st:.1f} seconds ")
+    logger.success(f"Execution time: {time.time() - st:.1f} seconds ")
 
 
 """
