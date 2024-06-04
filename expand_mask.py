@@ -66,9 +66,8 @@ def check_input_outputs(args):
         raise ValueError('Input and output must match for being files or folders')
     
 def expand_mask(input_path:str, output_path:str, how_many_pixels:int, type_of_input:str):
-
     """ Expand all masks in a folder by a certain number of pixels """
-    logger.info(f"Processing folder {input_path} as {type_of_input}")
+    logger.info(f"Processing input path as {type_of_input}")
 
     if type_of_input == "single_file":
         label = io.imread(os.path.join(input_path))
