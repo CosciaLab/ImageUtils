@@ -18,7 +18,6 @@ except ImportError:
     logger.warning("tqdm not installed, install it for a progress bar")
     tqdm = lambda x: x
 
-#TODO add for median
 #TODO add for specific quantile
 #TODO add for specific equation, expected 2D array of values
 
@@ -35,8 +34,8 @@ def get_args():
     inputs.add_argument("-m", "--markers",  dest="markers",     action="store", required=True, help="marker file path")
     inputs.add_argument("-o", "--output",   dest="output",      action="store", required=True, help="Path to output file or folder")
     inputs.add_argument("-ll", "--log-level",   dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
-    inputs.add_argument("-w", "--math",     dest="math",        action="store", required=False,  type=str, nargs="*", default=['mean'], help='Set the math operation (default: mean)')
-    # inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, nargs="*", default=None, help='Set the quantile (default: 0.5)')
+    inputs.add_argument("-w", "--math",     dest="math",        action="store", required=False,  type=str, nargs="*", default='mean',   help='Set the math operation (default: mean)')
+    inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, nargs="*", default=None,     help='Set the quantile')
     
     arg = parser.parse_args()
     arg.image   = abspath(arg.image)
@@ -44,11 +43,6 @@ def get_args():
     arg.markers = abspath(arg.markers)
     arg.output  = abspath(arg.output)
     return arg
-
-
-# expand skimage.measure to include median
-
-
 
 def check_input_outputs(args):
     """ check if input is a file or a folder """
@@ -71,14 +65,19 @@ def check_input_outputs(args):
     logger.debug(f"Math provided {args.math}")
     assert isinstance(args.math, list), f"Math must be a list, you provided {args.math}"
     assert len(args.math) > 0, "Math list must have at least one element"
-    expected_math = {'mean', 'max', 'min', 'median', 'mode', 'std'}
+    expected_math = {'mean', 'max', 'min', 'median', 'std'}
     assert all(item in expected_math for item in args.math), f"Math operations must be in {expected_math}"
+    logger.info(f"Math checked: {args.math}")
 
     #check quantile
-    # assert isinstance(args.quantile, list), f"Quantile must be a list, you provided {args.quantile}"
-    # if len(args.quantile) > 0:
-    #     assert all(isinstance(item, float) for item in args.quantile), "All elements of quantile must be floats"
-
+    logger.debug(f"Quantile provided {args.quantile}")
+    assert isinstance(args.quantile, list), f"Quantile must be a list, you provided {args.quantile}"
+    # change list of strings to list of floats
+    args.quantile = [float(string) for string in args.quantile]
+    if len(args.quantile) > 0:
+        assert all(isinstance(item, float) for item in args.quantile), "All elements of quantile must be floats"
+    logger.info(f"Quantiles checked: {args.quantile}")
+    
     #check image and mask
     if os.path.isfile(args.image):
         assert os.path.isfile(args.label), "Both image and label must be files"
@@ -109,8 +108,12 @@ def create_props(math:list):
     logger.info(f"Calculating these {props} for each cell")
     return props
 
-def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list):
+def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list, quantiles:list):
     """ Quantify a single image and mask """
+    
+
+    ## Prepare for quantification ## 
+    
     markers = pd.read_csv(markers_path)
     multichannel_image = io.imread(image_path)
 
@@ -136,19 +139,37 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     if np.unique(labeled_mask).shape[0] <= 2:
         raise ValueError("Labeled mask is binary, not labeled")
 
-    # pass on median as extra function
+    #median not available in skimage.measure, thus I create
     def median(region_mask, intensity_image):
         values = intensity_image[region_mask]
         return np.median(values)
-
+    
     extra_math = []
     if "intensity_median" in props:
         extra_math.append(median)
         props = [s for s in props if s != 'intensity_median']
         rename_median = True
+    else:
+        rename_median = False
+
+    #to create a function per provided quantile
+    def create_quantile_function(quantile_value):
+        def quantile_function(region_mask,intensity_image):
+            values = intensity_image[region_mask]
+            return np.quantile(a=values,q=quantile_value)
+        setattr(quantile_function, '__name__', f'quantile{str(quantile_value).split(".")[1].zfill(2)}')
+        return quantile_function
+
+    if len(quantiles) > 0 :
+        for q in quantiles:
+            extra_math.append(create_quantile_function(q))
+
+    ## Quantification ##
 
     properties = regionprops_table(label_image=labeled_mask, intensity_image=multichannel_image, properties=props, extra_properties=extra_math)
     df = pd.DataFrame(properties)
+
+    ## Data wrangling and cleanup ##
 
     #create cell id column from index
     df.insert(0, "CellID", df.index)
@@ -167,17 +188,13 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     df.rename(columns=rename_map, inplace=True)
 
     list_of_intensity_columns = [col for col in df.columns if col.startswith("intensity")]
-    # Simplify the original line of code
     column_rename_map = {}
     for col in list_of_intensity_columns:
         # I expect names as: intensity_mean-1, intensity_mean-2, etc.
         parts = col.split('-')
-        #get math name
         prefix = parts[0].split('intensity_')[1] 
-        #get marker name
         suffix = markers.at[int(parts[1]), "marker_name"] 
         new_col_name = prefix + "_" + suffix
-        # Add to the rename map
         column_rename_map[col] = new_col_name
 
     if rename_median == True:
@@ -200,10 +217,30 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
         new_order = columns_to_left + columns_to_right + columns_in_middle
         df = df.reindex(columns=new_order)
 
+    if len(quantiles) > 0:
+
+        column_quantile_rename_map = {}
+        for col in [col for col in df.columns if col.startswith("quantile")]:
+            parts = col.split('-')
+            prefix = parts[0]
+            suffix = markers.at[int(parts[1]), "marker_name"] 
+            new_col_name = prefix + "_" + suffix
+            column_quantile_rename_map[col] = new_col_name
+        df.rename(columns=column_quantile_rename_map, inplace=True)
+
+        # shift columns to the left of morphological columns
+        index_Y_centroid = df.columns.get_loc('Y_centroid')
+        index_Solidity = df.columns.get_loc('Solidity')
+        columns_to_left = list(df.columns[ : index_Y_centroid])
+        columns_to_right = list(df.columns[index_Solidity+1 : ])
+        columns_in_middle = list(df.columns[index_Y_centroid : index_Solidity +1])
+        new_order = columns_to_left + columns_to_right + columns_in_middle
+        df = df.reindex(columns=new_order)
+
     df.rename(columns=column_rename_map, inplace=True)
     df.to_csv(output_path, index=False)
 
-def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list):
+def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list, quantiles:list):
     """ Quantify a folder of images and masks """
     list_of_files = [f for f in os.listdir(image_path) if f.endswith('.tif')]
     logger.info(f"Found {len(list_of_files)} files in the folder")
@@ -218,7 +255,8 @@ def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_pa
             labels_path=os.path.join(labels_path, file.split('.')[0] + '.tif'), 
             markers_path=markers_path, 
             output_path=csv_file_path,
-            props=props
+            props=props,
+            quantiles=quantiles
         )
         
 def main():
@@ -230,10 +268,10 @@ def main():
 
     if processing == "single_file":
         logger.info("Processing a single mask")
-        quantify_single_file(args.image, args.label, args.markers, args.output, props)
+        quantify_single_file(args.image, args.label, args.markers, args.output, props, args.quantile)
     elif processing == "folder":
         logger.info("Processing a folder of masks")
-        quantify_folder(args.image, args.label, args.markers, args.output, props)
+        quantify_folder(args.image, args.label, args.markers, args.output, props, args.quantile)
     
     logger.success(f"Done, results saved in {args.output}")
 
