@@ -18,10 +18,6 @@ except ImportError:
     logger.warning("tqdm not installed, install it for a progress bar")
     tqdm = lambda x: x
 
-#TODO add for specific quantile
-#TODO add for specific equation, expected 2D array of values
-
-
 def get_args():
 
     description="""Easy-to-use, pixel quantification """
@@ -111,7 +107,6 @@ def create_props(math:list):
 def quantify_single_file(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list, quantiles:list):
     """ Quantify a single image and mask """
     
-
     ## Prepare for quantification ## 
     
     markers = pd.read_csv(markers_path)
@@ -280,22 +275,14 @@ if __name__ == "__main__":
     main()
     logger.success(f"Execution time: {time.time() - st:.1f} seconds ")
 
-
 """
 Example usage:
 
-python quant.py \
---log-level "DEBUG" \
---image cylinter_demo/tif/1.ome.tif \
---label cylinter_demo/mask/1.tif \
---markers cylinter_demo/markers.csv \
---output cylinter_demo/quantified.csv
-
-python quant.py \
---log-level "DEBUG" \
---image cylinter_demo/tif/ \
---label cylinter_demo/mask/ \
---markers cylinter_demo/markers.csv \
---output cylinter_demo/quantification/
+python ./Jose_BI/ImageUtils/quant.py \
+--image ./Jose_BI/data/mask_expansion_mesmer/dearray \
+--label ./Jose_BI/data/mask_expansion_mesmer/segmentation_expansion \
+--markers ./Jose_BI/data/mask_expansion_mesmer/markers.csv \
+--output ./Jose_BI/data/mask_expansion_mesmer/quantification \
+--log-level DEBUG --math 'mean' 'median' --quantile 0.75 0.85
 
 """
