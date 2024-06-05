@@ -189,15 +189,14 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
             suffix = markers.at[int(parts[1]), "marker_name"] 
             new_col_name = prefix + "_" + suffix
             column_median_rename_map[col] = new_col_name
-        
         df.rename(columns=column_median_rename_map, inplace=True)
         
         # shift columns to the left of morphological columns
         index_Y_centroid = df.columns.get_loc('Y_centroid')
-        columns_to_left = df.columns[ : index_Y_centroid]
         index_Solidity = df.columns.get_loc('Solidity')
-        columns_to_right = df.columns[index_Solidity+1 : ]
-        columns_in_middle = df.columns[index_Y_centroid : index_Solidity +1]
+        columns_to_left = list(df.columns[ : index_Y_centroid])
+        columns_to_right = list(df.columns[index_Solidity+1 : ])
+        columns_in_middle = list(df.columns[index_Y_centroid : index_Solidity +1])
         new_order = columns_to_left + columns_to_right + columns_in_middle
         df = df.reindex(columns=new_order)
 
