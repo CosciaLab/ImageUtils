@@ -36,12 +36,12 @@ def get_args():
     inputs.add_argument("-m", "--markers",  dest="markers",     action="store", required=True, help="marker file path")
     inputs.add_argument("-o", "--output",   dest="output",      action="store", required=True, help="Path to output file or folder")
     inputs.add_argument("-ll", "--log-level",   dest="loglevel", default='INFO', choices=["DEBUG", "INFO"], help='Set the log level (default: INFO)')
-    inputs.add_argument("-w", "--math",     dest="math",        action="store", required=False,  type=str, default='[mean]', help='Set the math operation (default: mean)')
-    inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, default=None, help='Set the quantile (default: 0.5)')
+    inputs.add_argument("-w", "--math",     dest="math",        action="store", required=False,  type=str, nargs="*", default=['mean'], help='Set the math operation (default: mean)')
+    # inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, nargs="*", default=None, help='Set the quantile (default: 0.5)')
     
     arg = parser.parse_args()
-    arg.math        = ast.literal_eval(arg.math)
-    arg.quantile    = ast.literal_eval(arg.quantile)
+    # arg.math        = ast.literal_eval(arg.math)
+    # arg.quantile    = ast.literal_eval(arg.quantile)
     arg.image   = abspath(arg.image)
     arg.label   = abspath(arg.label)
     arg.markers = abspath(arg.markers)
@@ -73,9 +73,9 @@ def check_input_outputs(args):
     assert all(item in expected_math for item in args.math), f"Math operations must be in {expected_math}"
 
     #check quantile
-    assert isinstance(args.quantile, list), f"Quantile must be a list, you provided {args.quantile}"
-    if len(args.quantile) > 0:
-        assert all(isinstance(item, float) for item in args.quantile), "All elements of quantile must be floats"
+    # assert isinstance(args.quantile, list), f"Quantile must be a list, you provided {args.quantile}"
+    # if len(args.quantile) > 0:
+    #     assert all(isinstance(item, float) for item in args.quantile), "All elements of quantile must be floats"
 
     #check image and mask
     if os.path.isfile(args.image):
@@ -153,15 +153,22 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     }
     df.rename(columns=rename_map, inplace=True)
 
-    #list all columns that start as intensity_mean-*, the default from skimage.measure.regionprops_table
-    list_of_channels = [col for col in df.columns if col.startswith('intensity_mean-')]
-    #create map with new names
-    channel_map = {col: col.split('intensity_mean-')[1] for col in list_of_channels}
-    #edit the values of channel_map to match the names of the channels in the original image
-    for key,value in channel_map.items():
-        channel_map[key] = markers.at[int(value),"marker_name"]
-    #rename columns
-    df.rename(columns=channel_map, inplace=True)
+    list_of_intensity_columns = [col for col in df.columns if col.startswith("intensity")]
+    # column_rename_map = {col: col.split('-')[0].split('intensity_')[1] + markers.at[int(col.split('-')[1]),"marker_name"] for col in list_of_intensity_columns}
+    # Simplify the original line of code
+    column_rename_map = {}
+    for col in list_of_intensity_columns:
+        # I expect names as: intensity_mean-1, intensity_mean-2, etc.
+        parts = col.split('-')
+        #get math name
+        prefix = parts[0].split('intensity_')[1] 
+        #get marker name
+        suffix = markers.at[int(parts[1]), "marker_name"] 
+        new_col_name = prefix + "_" + suffix
+        # Add to the rename map
+        column_rename_map[col] = new_col_name
+
+    df.rename(columns=column_rename_map, inplace=True)
     df.to_csv(output_path, index=False)
 
 def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_path:str, props:list):
@@ -171,7 +178,8 @@ def quantify_folder(image_path:str, labels_path:str, markers_path:str, output_pa
 
     for file in tqdm(list_of_files):
         logger.info(f"    Working on sample {file}")
-        csv_file_path = os.path.join(output_path, os.path.splitext(file)[0] + '.csv')
+        base_name = os.path.splitext(os.path.splitext(file)[0])[0]
+        csv_file_path = os.path.join(output_path, base_name + '.csv')
 
         quantify_single_file(
             image_path=os.path.join(image_path, file), 
