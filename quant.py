@@ -18,7 +18,6 @@ except ImportError:
     logger.warning("tqdm not installed, install it for a progress bar")
     tqdm = lambda x: x
 
-#TODO add meanmaxmin option in argparse
 #TODO add for median
 #TODO add for specific quantile
 #TODO add for specific equation, expected 2D array of values
@@ -40,13 +39,15 @@ def get_args():
     # inputs.add_argument("-q", "--quantile", dest="quantile",    action="store", required=False,  type=str, nargs="*", default=None, help='Set the quantile (default: 0.5)')
     
     arg = parser.parse_args()
-    # arg.math        = ast.literal_eval(arg.math)
-    # arg.quantile    = ast.literal_eval(arg.quantile)
     arg.image   = abspath(arg.image)
     arg.label   = abspath(arg.label)
     arg.markers = abspath(arg.markers)
     arg.output  = abspath(arg.output)
     return arg
+
+
+# expand skimage.measure to include median
+
 
 
 def check_input_outputs(args):
@@ -67,6 +68,7 @@ def check_input_outputs(args):
         logger.info(f"Markers file checked")
 
     #check math
+    logger.debug(f"Math provided {args.math}")
     assert isinstance(args.math, list), f"Math must be a list, you provided {args.math}"
     assert len(args.math) > 0, "Math list must have at least one element"
     expected_math = {'mean', 'max', 'min', 'median', 'mode', 'std'}
@@ -134,7 +136,18 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     if np.unique(labeled_mask).shape[0] <= 2:
         raise ValueError("Labeled mask is binary, not labeled")
 
-    properties = regionprops_table(label_image=labeled_mask, intensity_image=multichannel_image, properties=props)
+    # pass on median as extra function
+    def median(region_mask, intensity_image):
+        values = intensity_image[region_mask]
+        return np.median(values)
+
+    extra_math = []
+    if "intensity_median" in props:
+        extra_math.append(median)
+        props = [s for s in props if s != 'intensity_median']
+        rename_median = True
+
+    properties = regionprops_table(label_image=labeled_mask, intensity_image=multichannel_image, properties=props, extra_properties=extra_math)
     df = pd.DataFrame(properties)
 
     #create cell id column from index
@@ -154,7 +167,6 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
     df.rename(columns=rename_map, inplace=True)
 
     list_of_intensity_columns = [col for col in df.columns if col.startswith("intensity")]
-    # column_rename_map = {col: col.split('-')[0].split('intensity_')[1] + markers.at[int(col.split('-')[1]),"marker_name"] for col in list_of_intensity_columns}
     # Simplify the original line of code
     column_rename_map = {}
     for col in list_of_intensity_columns:
@@ -167,6 +179,27 @@ def quantify_single_file(image_path:str, labels_path:str, markers_path:str, outp
         new_col_name = prefix + "_" + suffix
         # Add to the rename map
         column_rename_map[col] = new_col_name
+
+    if rename_median == True:
+        #median columns called median-0, median-1, median-2, etc.
+        column_median_rename_map = {}
+        for col in [col for col in df.columns if col.startswith("median-")]:
+            parts = col.split('-')
+            prefix = parts[0]
+            suffix = markers.at[int(parts[1]), "marker_name"] 
+            new_col_name = prefix + "_" + suffix
+            column_median_rename_map[col] = new_col_name
+        
+        df.rename(columns=column_median_rename_map, inplace=True)
+        
+        # shift columns to the left of morphological columns
+        index_Y_centroid = df.columns.get_loc('Y_centroid')
+        columns_to_left = df.columns[ : index_Y_centroid]
+        index_Solidity = df.columns.get_loc('Solidity')
+        columns_to_right = df.columns[index_Solidity+1 : ]
+        columns_in_middle = df.columns[index_Y_centroid : index_Solidity +1]
+        new_order = columns_to_left + columns_to_right + columns_in_middle
+        df = df.reindex(columns=new_order)
 
     df.rename(columns=column_rename_map, inplace=True)
     df.to_csv(output_path, index=False)
