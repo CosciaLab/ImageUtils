@@ -8,9 +8,9 @@ if len(sys.argv) > 1:
 else:
     print("No variable was passed.")
 
-# path= '/Users/rdeliza/Desktop/P21E05_HN26'
-# image_id = 0
-image_id = int(image_id)
+# path= '/Users/rdeliza/Desktop/Multiplex/P21E14_HN46_restitch'
+# path= '/Users/rdeliza/Desktop/HN_Segmentation_Tests'
+# image_id = 1
 
 # Start
 print('Job begins: ' + path)
@@ -36,7 +36,12 @@ from functions import *
 
 # Execute functions
 # Start with medians subtraction
-print('Subtracting median')
+print('Starting analysis')
+
+# df['image_input'][image_id]
+image_id = int(image_id)
+print(df['image_input'][image_id])
+median_data(df['image_input'][image_id])
 
 '''
 n_images = range(0, n_images)
@@ -44,7 +49,3 @@ for i in n_images:
     print(df['basename'][i])
     median_data(df['image_input'][i])
 '''
-print(df['basename'][image_id])
-median_data(df['image_input'][image_id])
-print('Job complete: ' + path)
-

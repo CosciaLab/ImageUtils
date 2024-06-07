@@ -70,7 +70,17 @@ def main(img, labels_path: str, markers_path: str):
     """
 
     # part 0, load markers
-    markers = pd.read_csv(markers_path, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#', sep=';')
+    try:
+        markers = pd.read_csv(markers_path, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#', sep=';')
+    except:
+        print('Table not ; delimited')
+        pass
+
+    try:
+        markers = pd.read_csv(markers_path, dtype={0: 'int16', 1: 'int16', 2: 'str'}, comment='#', sep=',')
+    except:
+        print('Could not read ' + markers_path)
+        pass
 
     # part 1, load images
     multichannel_image = np.asarray(img)
