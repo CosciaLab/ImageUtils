@@ -16,6 +16,7 @@ try:
 except ImportError:
     from skimage.util.dtype import convert as dtype_convert
 
+# TODO scale to a folder of images
 
 def get_args():
     description="""Projection of nuclear and membrane markers for segmentation"""
@@ -95,6 +96,54 @@ def detect_pixel_size(img_path, pixel_size=None):
             print("Pixel size detection using ome-types failed")
             pixel_size = None
     return pixel_size
+
+def process_nuclear_signal(image):
+    logger.info(f"Processing nuclear signal")
+    image = np.quantile(image, 0.75, axis=0)
+    image = median_subtraction(image)
+    image = skimage.filters.median(image, selem=skimage.morphology.disk(1.5))
+    # min = 75%, max = 99%
+    image = image - np.quantile(image, 0.75)
+    image[image < 0] = 0
+    image = image / np.quantile(image, 0.99)
+    image[image > 1] = 1
+    # scale to 0-255
+    image = image * 255
+    image = image.astype(np.uint8)
+    return image
+
+def process_membrane_signal(image, nucleus_img):
+    image = np.quantile(image, 0.75, axis=0)
+    image = median_subtraction(image)
+    image = skimage.filters.median(image, skimage.morphology.disk(1.5))
+    image[image < 0] = 0
+    image = skimage.filters.maximum_filter(image, size=(3, 3))
+    image = skimage.filters.median(image, skimage.morphology.disk(3))
+    # min, max scaling
+    image = image - np.quantile(image, 0.75)
+    image[image < 0] = 0
+    image = image / np.quantile(image, 0.995)
+    image[image > 1] = 1
+    image = image * 255
+    image = image.astype(np.uint8)
+    image = np.maximum(image, nucleus_img)
+    return image
+
+def median_subtraction(image):
+    logger.info(f"Subtracting median")
+    image_shape = image.shape
+    new_shape = (image_shape[1]//8, image_shape[2]//8)
+    #blur it before down sampling
+    blur_img = skimage.filters.median(image, selem=skimage.morphology.disk(3.5))
+    #downscale the median filtered image to the new dimensions
+    downscaled_blur_image = skimage.transform.resize(blur_img, new_shape, order=0)
+    #blur the small image
+    blurred_small_image = skimage.filters.median(downscaled_blur_image, selem=skimage.morphology.disk(50.5))
+    #scale back up
+    image_blurred = skimage.transform.resize(blurred_small_image, image_shape, order=0)
+    #remove blurred image from original image
+    image_median_removed = image - np.minimum(image_blurred, image)
+    return image_median_removed
 
 def project_image(image, quantile:float):
     logger.info(f"Projecting image")
