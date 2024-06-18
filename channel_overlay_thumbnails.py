@@ -8,7 +8,7 @@ import sys
 from loguru import logger
 import ast
 import natsort
-import tqdm
+from tqdm import tqdm
 from skimage import exposure
 
 #TODO scale image downsize according to image size
