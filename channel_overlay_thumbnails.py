@@ -11,7 +11,6 @@ import natsort
 import tqdm
 from skimage import exposure
 
-#TODO naturalsort the files in the directory
 #TODO scale image downsize according to image size
 
 def get_args():
@@ -105,7 +104,7 @@ def get_overlay(input, output, channels):
     ax.legend(handles=legend_elements, loc='upper right', fontsize='x-small')
 
     fig.suptitle(f'sample: {sample_name}, overlay of channels: {channels}')
-    plt.savefig(output, dpi=image.shape[1]//20)
+    plt.savefig(output, dpi=200)
     plt.close()
 
 def main():
