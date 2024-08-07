@@ -1,9 +1,14 @@
 {
     "cSpell.words": [
         "astype",
+        "dtype",
         "geodataframe",
         "geopandas",
+        "imread",
         "imsave",
+        "nunique",
+        "regionprops",
+        "skimage",
         "tifffile"
     ]
 }
